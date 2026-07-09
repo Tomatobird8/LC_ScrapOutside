@@ -9,12 +9,14 @@ using UnityEngine;
 namespace LC_ScrapOutside.Patches;
 
 [HarmonyPatch]
-public class SpawnScrap
+public static class SpawnScrap
 {
+    static float luck = 0f;
     [HarmonyPatch(typeof(RoundManager), nameof(RoundManager.waitForScrapToSpawnToSync))]
     [HarmonyPrefix]
     public static void WaitForScrapToSpawn_Prefix(ref NetworkObjectReference[] spawnedScrap, ref int[] scrapValues)
     {
+        if (LC_ScrapOutside.luckyRoll.Value || LC_ScrapOutside.scaleScrapByLuck.Value) luck = CalculateLuckValue();
         System.Random random = new(StartOfRound.Instance.randomMapSeed + 69420 - 67);
         if (random.NextDouble() >= LC_ScrapOutside.chanceToSpawn.Value)
         {
@@ -66,6 +68,8 @@ public class SpawnScrap
             LC_ScrapOutside.Logger.LogWarning("No outside nodes found. Outside scrap cannot be spawned.");
             return;
         }
+        
+        if (LC_ScrapOutside.announceInChat.Value && HUDManager.Instance) HUDManager.Instance.AddTextToChatOnServer($"Spawned {amount} scrap outside!");
 
         for (int i = 0; i < ScrapToSpawn.Count; i++)
         {
@@ -132,7 +136,6 @@ public class SpawnScrap
         }
         if (LC_ScrapOutside.luckyRoll.Value)
         {
-            float luck = CalculateLuckValue();
             if (luck > 0)
             {
                 LC_ScrapOutside.Logger.LogDebug("Luck value was above 0. LuckyRoll will be checked.");
@@ -142,6 +145,10 @@ public class SpawnScrap
                     LC_ScrapOutside.Logger.LogDebug("Luck check passed! Scrap amount will be multiplied.");
                     result *= LC_ScrapOutside.luckyRollMultiplier.Value;
                     LC_ScrapOutside.Logger.LogDebug($"Scrap amount after LuckyRoll: {result}");
+                }
+                else
+                {
+                    LC_ScrapOutside.Logger.LogDebug("No LuckyRoll this time!");
                 }
             }
             else
@@ -171,7 +178,7 @@ public class SpawnScrap
 
         if (LC_ScrapOutside.scaleScrapByLuck.Value)
         {
-            multiplier *= (CalculateLuckValue() * LC_ScrapOutside.luckMultiplier.Value) + 1;
+            multiplier *= (luck * LC_ScrapOutside.luckMultiplier.Value) + 1;
             LC_ScrapOutside.Logger.LogDebug($"Multiplier after luckBasedScrapMultiplier: {multiplier}");
         }
         if (LC_ScrapOutside.scaleScrapByQuota.Value)

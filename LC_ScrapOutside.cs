@@ -14,10 +14,11 @@ public class LC_ScrapOutside : BaseUnityPlugin
 
     public static ConfigEntry<Algorithm> scrapCountAlgorithm = null!;
     public static ConfigEntry<float> chanceToSpawn = null!;
+    public static ConfigEntry<bool> announceInChat = null!;
 
     public static ConfigEntry<bool> luckyRoll = null!;
-    public static ConfigEntry<float> maxLuckyLuck = null!; // 0.2135
-    public static ConfigEntry<float> maxLuckyChance = null!; // 0.5
+    public static ConfigEntry<float> maxLuckyLuck = null!;
+    public static ConfigEntry<float> maxLuckyChance = null!;
     public static ConfigEntry<float> luckyRollMultiplier = null!;
 
     public static ConfigEntry<int> staticScrapToSpawn = null!;
@@ -50,12 +51,13 @@ public class LC_ScrapOutside : BaseUnityPlugin
         Instance = this;
 
         scrapCountAlgorithm = Config.Bind("General", "Scrap Count Algorithm", Algorithm.Dynamic, "Which method to use for calculating scrap amount.");
+        announceInChat = Config.Bind("General", "Announce In Chat", true, "When scrap is spawned outside, annouce the amount spawned in chat.");
         chanceToSpawn = Config.Bind("General", "Chance To Spawn", 1.0f, new ConfigDescription("Chance for outside scrap to spawn. 0 for never, 1 for always", new AcceptableValueRange<float>(0f, 1f)));
         useInternalLuckValue = Config.Bind("General", "Use Internal Luck Value", false, "Instead of calculating the current furniture luck immediately from the currently placed furniture, should the internal luck value be used? The internal value only updates each quota after quota 2.");
 
         luckyRoll = Config.Bind("Luck Bonus", "Lucky Bonus", true, "Enable a bonus luck check that multiplies the amount of scrap outside if it passes. Uses furniture luck to determine the chance to succeed.");
         maxLuckyLuck = Config.Bind("Luck Bonus", "Max Luck", 0.2135f, "Furniture luck max cap. Default is all vanilla furniture without signal translator. Increase if you have mods that add more furniture with luck.");
-        maxLuckyChance = Config.Bind("Luck Bonus", "Success Chance", 0.5f, new ConfigDescription("Chance of success at max luck.", new AcceptableValueRange<float>(0f, 1f)));
+        maxLuckyChance = Config.Bind("Luck Bonus", "Success Chance", 0.2f, new ConfigDescription("Chance of success at max luck.", new AcceptableValueRange<float>(0f, 1f)));
         luckyRollMultiplier = Config.Bind("Luck Bonus", "Scrap Multiplier", 3f, "The amount of scrap outside is multiplied by this if the luck check is successful.");
 
         staticScrapToSpawn = Config.Bind("Algorithms - Static", "Scrap Amount", 6, "Amount of scrap to spawn outside.");
