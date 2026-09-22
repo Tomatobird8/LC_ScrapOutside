@@ -1,6 +1,7 @@
 ﻿using HarmonyLib;
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using Unity.Netcode;
@@ -19,17 +20,22 @@ public static class SpawnScrap
     public static void WaitForScrapToSpawn_Prefix(ref NetworkObjectReference[] spawnedScrap, ref int[] scrapValues)
     {
         bool configFound = false;
-        for (int i = 0;i < LC_ScrapOutside.configurations.Count; i++)
+        for (int i = 0; i < LC_ScrapOutside.configurations.Count; i++)
         {
             if (LC_ScrapOutside.configurations[i].name == RoundManager.Instance.currentLevel.PlanetName)
             {
-                if (LC_ScrapOutside.configurations[i].useThis) currentIndex = i;
+                if (LC_ScrapOutside.configurations[i].configEnabled) currentIndex = i;
                 else currentIndex = 0;
                 configFound = true;
+                LC_ScrapOutside.Logger.LogInfo($"Configuration found for {RoundManager.Instance.currentLevel.PlanetName}! {(LC_ScrapOutside.configurations[i].configEnabled ? "Using custom configurations for this moon." : "Custom configuration for this moon is disabled, using defaults instead.")}");
                 break;
             }
         }
-        if (!configFound) currentIndex = 0;
+        if (!configFound)
+        {
+            LC_ScrapOutside.Logger.LogWarning($"Configuration for {RoundManager.Instance.currentLevel.PlanetName} was not found! Using defaults...");
+            currentIndex = 0;
+        }
         if (LC_ScrapOutside.configurations[currentIndex].chanceToSpawn <= 0f)
         {
             LC_ScrapOutside.Logger.LogInfo("Chance for scrap to spawn outside was set to 0, no scrap outside will spawn.");
@@ -44,32 +50,29 @@ public static class SpawnScrap
             return;
         }
 
-        /*if (LC_ScrapOutside.extraVarianceMin.Value > LC_ScrapOutside.extraVarianceMax.Value)
+        if (LC_ScrapOutside.configurations[currentIndex].randomVarianceMin > LC_ScrapOutside.configurations[currentIndex].randomVarianceMax)
         {
             LC_ScrapOutside.Logger.LogWarning("ExtraVarianceMin was smaller than ExtraVarianceMax. Please readjust your configuration.");
-            LC_ScrapOutside.extraVarianceMin.Value = LC_ScrapOutside.extraVarianceMax.Value;
-            LC_ScrapOutside.extraVarianceMin.ConfigFile.Save();
+            LC_ScrapOutside.configurations[currentIndex].randomVarianceMin = LC_ScrapOutside.configurations[currentIndex].randomVarianceMax;
             LC_ScrapOutside.Logger.LogWarning("ExtraVarianceMin was replaced with ExtraVarianceMax to avoid errors.");
         }
 
-        if (LC_ScrapOutside.minScrapToSpawn.Value > LC_ScrapOutside.maxScrapToSpawn.Value)
+        if (LC_ScrapOutside.configurations[currentIndex].minScrapToSpawn > LC_ScrapOutside.configurations[currentIndex].maxScrapToSpawn)
         {
             LC_ScrapOutside.Logger.LogWarning("MinScrapToSpawn was smaller than MaxScrapToSpawn. Please readjust your configuration.");
-            LC_ScrapOutside.minScrapToSpawn.Value = LC_ScrapOutside.maxScrapToSpawn.Value;
-            LC_ScrapOutside.minScrapToSpawn.ConfigFile.Save();
-            LC_ScrapOutside.Logger.LogWarning("MinScrapToSpawn was replaced with MaxScrapToSpawn to avoid errors.");
+            LC_ScrapOutside.configurations[currentIndex].minScrapToSpawn = LC_ScrapOutside.configurations[currentIndex].maxScrapToSpawn;
+            LC_ScrapOutside.Logger.LogWarning($"MinScrapToSpawn for {LC_ScrapOutside.configurations[currentIndex].name} was replaced with MaxScrapToSpawn to avoid errors.");
         }
 
-        if (LC_ScrapOutside.randomScrapMin.Value > LC_ScrapOutside.randomScrapMax.Value)
+        if (LC_ScrapOutside.configurations[currentIndex].randomScrapMin > LC_ScrapOutside.configurations[currentIndex].randomScrapMax)
         {
             LC_ScrapOutside.Logger.LogWarning("RandomScrapMin was smaller than RandomScrapMax. Please readjust your configuration.");
-            LC_ScrapOutside.randomScrapMin.Value = LC_ScrapOutside.randomScrapMax.Value;
-            LC_ScrapOutside.randomScrapMin.ConfigFile.Save();
-            LC_ScrapOutside.Logger.LogWarning("RandomScrapMin was replaced with RandomScrapMax to avoid errors.");
-        }*/
+            LC_ScrapOutside.configurations[currentIndex].randomScrapMin = LC_ScrapOutside.configurations[currentIndex].randomScrapMax;
+            LC_ScrapOutside.Logger.LogWarning($"RandomScrapMin for {LC_ScrapOutside.configurations[currentIndex].name} was replaced with RandomScrapMax to avoid errors.");
+        }
 
         int amount = GetScrapSpawnAmount();
-        
+
         if (amount <= 0)
         {
             LC_ScrapOutside.Logger.LogInfo("No scrap to spawn outside.");
@@ -79,21 +82,65 @@ public static class SpawnScrap
         LC_ScrapOutside.Logger.LogInfo($"Spawning {amount} scrap objects outside.");
 
         List<Item> ScrapToSpawn = SelectScrap(amount);
+        if (ScrapToSpawn.Count == 0)
+        {
+            LC_ScrapOutside.Logger.LogWarning("No scrap was selected. Outside scrap cannot be spawned.");
+            return;
+        }
         List<int> ScrapValues = [];
 
         List<NetworkObjectReference> ScrapNetworkObjects = [];
-        List<Vector3> Nodes = [.. GameObject.FindGameObjectsWithTag("OutsideAINode").Select(n => n.transform.position)];
-        if (Nodes.Count <= 0) 
+
+        List<Vector3> Nodes = [];
+        float maxRadius = 0;
+        switch (LC_ScrapOutside.configurations[currentIndex].spawnPositions)
+        {
+            case SpawnPositions.OutsideNodes:
+                Nodes = [.. GameObject.FindGameObjectsWithTag("OutsideAINode").Select(n => n.transform.position)];
+                break;
+            case SpawnPositions.NodesNearEntrances:
+                maxRadius = LC_ScrapOutside.configurations[currentIndex].spawnRadiusAroundEntrances * LC_ScrapOutside.configurations[currentIndex].spawnRadiusAroundEntrances;
+                Nodes = [.. GameObject.FindGameObjectsWithTag("OutsideAINode").Select(n => n.transform.position)];
+                List<Vector3> Entrances = [.. GameObject.FindObjectsByType<EntranceTeleport>(FindObjectsSortMode.None).Where(e => e.isEntranceToBuilding).Select(e => e.transform.position)];
+                Nodes = [.. Nodes.Where(node => Entrances.Any(e => (node - e).sqrMagnitude <= maxRadius))];
+                break;
+            case SpawnPositions.NodesNearMain:
+                maxRadius = LC_ScrapOutside.configurations[currentIndex].spawnRadiusAroundEntrances * LC_ScrapOutside.configurations[currentIndex].spawnRadiusAroundEntrances;
+                Nodes = [.. GameObject.FindGameObjectsWithTag("OutsideAINode").Select(n => n.transform.position)];
+                EntranceTeleport[] EntranceTeleports = GameObject.FindObjectsByType<EntranceTeleport>(FindObjectsSortMode.None);
+                for (int i = 0; i < EntranceTeleports.Length; i++)
+                {
+                    if (EntranceTeleports[i].entranceId == 0)
+                    {
+                        Nodes = [.. Nodes.Where(node => (node - EntranceTeleports[i].transform.position).sqrMagnitude <= maxRadius)];
+                        break;
+                    }
+                }
+                break;
+            case SpawnPositions.CustomList:
+                Nodes = ParseCoordinateList(LC_ScrapOutside.configurations[currentIndex].customPositions);
+                break;
+        }
+
+        if (Nodes.Count <= 0)
         {
             LC_ScrapOutside.Logger.LogWarning("No outside nodes found. Outside scrap cannot be spawned.");
             return;
         }
-        
+
         if (LC_ScrapOutside.announceInChat.Value && HUDManager.Instance) HUDManager.Instance.AddTextToChatOnServer($"Spawned {amount} scrap outside!");
 
         for (int i = 0; i < ScrapToSpawn.Count; i++)
         {
-            Vector3 pos = RoundManager.Instance.GetRandomNavMeshPositionInBoxPredictable(Nodes[UnityEngine.Random.Range(0, Nodes.Count)], 10f, RoundManager.Instance.navHit, random);
+            Vector3 pos = new();
+            if (LC_ScrapOutside.configurations[currentIndex].spawnRadius > 0f)
+            {
+                pos = RoundManager.Instance.GetRandomNavMeshPositionInBoxPredictable(Nodes[UnityEngine.Random.Range(0, Nodes.Count)], 10f, RoundManager.Instance.navHit, random);
+            }
+            else
+            {
+                pos = Nodes[UnityEngine.Random.Range(0, Nodes.Count)];
+            }
             GameObject obj = UnityEngine.Object.Instantiate(ScrapToSpawn[i].spawnPrefab, pos + Vector3.up * ScrapToSpawn[i].verticalOffset, Quaternion.identity, RoundManager.Instance.spawnedScrapContainer);
             GrabbableObject grabobj = obj.GetComponent<GrabbableObject>();
             grabobj.transform.rotation = Quaternion.Euler(grabobj.itemProperties.restingRotation);
@@ -124,20 +171,41 @@ public static class SpawnScrap
         List<Item> scrapToSpawn = [];
         List<int> scrapWeights = [];
 
-        for (int i = 0; i < RoundManager.Instance.currentLevel.spawnableScrap.Count; i++)
+        switch (LC_ScrapOutside.configurations[currentIndex].scrapType)
         {
-            scrapWeights.Add(RoundManager.Instance.currentLevel.spawnableScrap[i].rarity);
-        }
-        int[] weights = [.. scrapWeights];
-        for (int i = 0; i < amount; i++)
-        {
-            scrapToSpawn.Add(RoundManager.Instance.currentLevel.spawnableScrap[RoundManager.Instance.GetRandomWeightedIndex(weights, random)].spawnableItem);
+            case ScrapType.FromMoon:
+                for (int i = 0; i < RoundManager.Instance.currentLevel.spawnableScrap.Count; i++)
+                {
+                    scrapWeights.Add(RoundManager.Instance.currentLevel.spawnableScrap[i].rarity);
+                }
+                for (int i = 0; i < amount; i++)
+                {
+                    scrapToSpawn.Add(RoundManager.Instance.currentLevel.spawnableScrap[RoundManager.Instance.GetRandomWeightedIndex([.. scrapWeights], random)].spawnableItem);
+                }
+                break;
+            case ScrapType.CustomList:
+                List<WeightedItem> spawnableItemsList = ParseItemWeights(LC_ScrapOutside.configurations[currentIndex].scrapToSpawn);
+                for (int i = 0;i < spawnableItemsList.Count; i++)
+                {
+                    scrapWeights.Add(spawnableItemsList[i].Rarity);
+                }
+                for (int i = 0;i < amount; i++)
+                {
+                    Item? item = GetItem(spawnableItemsList[RoundManager.Instance.GetRandomWeightedIndex([.. scrapWeights], random)].Name);
+                    if (item == null)
+                    {
+                        LC_ScrapOutside.Logger.LogError("Item reference was null. Continuing...");
+                        continue;
+                    }
+                    scrapToSpawn.Add(item);
+                }
+                break;
         }
 
         return scrapToSpawn;
     }
 
-    internal static int GetScrapSpawnAmount() 
+    internal static int GetScrapSpawnAmount()
     {
         float result = 0;
         switch (LC_ScrapOutside.configurations[currentIndex].scrapCountAlgorithm)
@@ -212,10 +280,10 @@ public static class SpawnScrap
             multiplier *= Mathf.Pow(averageScrapCount / LC_ScrapOutside.configurations[currentIndex].baselineMoonScrapAmount, LC_ScrapOutside.configurations[currentIndex].moonScrapAmountDifferenceScalar);
             LC_ScrapOutside.Logger.LogDebug($"Multiplier after moonScrapAmountBasedMultiplier: {multiplier}");
         }
-        if (LC_ScrapOutside.configurations[currentIndex].scaleScrapByWeather) 
+        if (LC_ScrapOutside.configurations[currentIndex].scaleScrapByWeather)
         {
             Dictionary<string, float>? weatherMultipliers = GetWeatherMultipliersDict();
-            if (weatherMultipliers != null) 
+            if (weatherMultipliers != null)
             {
                 if (weatherMultipliers.TryGetValue(RoundManager.Instance.currentLevel.currentWeather.ToString().ToLowerInvariant(), out float weatherMultiplier))
                     multiplier *= weatherMultiplier;
@@ -234,7 +302,7 @@ public static class SpawnScrap
     internal static float GetExtraVariance()
     {
         System.Random random = new(StartOfRound.Instance.randomMapSeed + 35121);
-        return ((float)random.NextDouble() * (LC_ScrapOutside.extraVarianceMax.Value - LC_ScrapOutside.extraVarianceMin.Value)) + LC_ScrapOutside.extraVarianceMin.Value;
+        return ((float)random.NextDouble() * (LC_ScrapOutside.configurations[currentIndex].randomVarianceMax - LC_ScrapOutside.configurations[currentIndex].randomVarianceMin)) + LC_ScrapOutside.configurations[currentIndex].randomVarianceMin;
     }
 
     internal static Dictionary<string, float>? GetWeatherMultipliersDict()
@@ -260,7 +328,7 @@ public static class SpawnScrap
                 }
             }
             return dict;
-        }catch (Exception e)
+        } catch (Exception e)
         {
             LC_ScrapOutside.Logger.LogError("Failed to get weather multipliers: " + e);
             return null;
@@ -291,5 +359,95 @@ public static class SpawnScrap
         }
         LC_ScrapOutside.Logger.LogDebug($"Luck calculated: {luck}");
         return luck;
+    }
+
+    private static List<WeightedItem> ParseItemWeights(string s)
+    {
+        List<WeightedItem> items = [];
+
+        try 
+        {
+            string[] temp = s.Split(',');
+            for (int i = 0;i < temp.Length; i++)
+            {
+                string[] temp2 = temp[i].Split(":");
+                WeightedItem item = new()
+                {
+                    Name = temp2[0],
+                    Rarity = int.Parse(temp2[1])
+                };
+                items.Add(item);
+            }
+        }catch (Exception e)
+        {
+            LC_ScrapOutside.Logger.LogError("An exception occured while parsing item weights! Make sure your configuration for custom scrap spawns is correct. " + e.Message);
+        }
+
+        return items;
+    }
+
+    private static Item? GetItem(string s)
+    {
+        for (int i = 0;i < StartOfRound.Instance.allItemsList.itemsList.Count; i++)
+        {
+            if (s == StartOfRound.Instance.allItemsList.itemsList[i].itemName)
+            {
+                return StartOfRound.Instance.allItemsList.itemsList[i];
+            }
+        }
+
+        LC_ScrapOutside.Logger.LogError($"Couldn't match string '{s}' to any item. Make sure you've written the name of the item correctly.");
+
+        return null;
+    }
+
+    private static List<Vector3> ParseCoordinateList(string s)
+    {
+        List<Vector3> coordinates = [];
+        try
+        {
+            string[] temp = s.Split(';');
+            for (int i = 0; i < temp.Length; i++)
+            {
+                coordinates.Add(ParseVector3FromString(temp[i]));
+            }
+        }
+        catch (Exception e)
+        {
+            LC_ScrapOutside.Logger.LogError("Something went wrong while trying to parse list of coordinates. " + e.Message);
+        }
+        return coordinates;
+    }
+
+    private static Vector3 ParseVector3FromString(string s)
+    {
+        try
+        {
+            string[] temp = s.Split(',');
+            return new Vector3(float.Parse(temp[0].Trim(), CultureInfo.InvariantCulture), float.Parse(temp[1].Trim(), CultureInfo.InvariantCulture), float.Parse(temp[2].Trim(), CultureInfo.InvariantCulture));
+        }
+        catch (IndexOutOfRangeException e)
+        {
+            LC_ScrapOutside.Logger.LogError("Specified string could not be parsed for a Vector3. Please use the correct format. Example: '-14.6,4.6,0' " + e.Message);
+        }
+        catch (ArgumentOutOfRangeException e)
+        {
+            LC_ScrapOutside.Logger.LogError("Specified string could not be parsed for a Vector3. Please use the correct format. Example: '-14.6,4.6,0' " + e.Message);
+        }
+        catch (ArgumentNullException e)
+        {
+            LC_ScrapOutside.Logger.LogError("ArgumentNullException while trying to parse Vector3. " + e.Message);
+        }
+        catch (FormatException e)
+        {
+            LC_ScrapOutside.Logger.LogError("FormatException while trying to parse Vector3. " + e.Message);
+        }
+        return new Vector3();
+    }
+
+    internal struct WeightedItem
+    {
+        public string Name;
+        public int Rarity;
     }
 }
