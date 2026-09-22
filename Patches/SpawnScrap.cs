@@ -11,20 +11,40 @@ namespace LC_ScrapOutside.Patches;
 [HarmonyPatch]
 public static class SpawnScrap
 {
+    static int currentIndex = 0;
     static float luck = 0f;
+
     [HarmonyPatch(typeof(RoundManager), nameof(RoundManager.waitForScrapToSpawnToSync))]
     [HarmonyPrefix]
     public static void WaitForScrapToSpawn_Prefix(ref NetworkObjectReference[] spawnedScrap, ref int[] scrapValues)
     {
-        if (LC_ScrapOutside.luckyRoll.Value || LC_ScrapOutside.scaleScrapByLuck.Value) luck = CalculateLuckValue();
-        System.Random random = new(StartOfRound.Instance.randomMapSeed + 69420 - 67);
-        if (random.NextDouble() >= LC_ScrapOutside.chanceToSpawn.Value)
+        bool configFound = false;
+        for (int i = 0;i < LC_ScrapOutside.configurations.Count; i++)
         {
-            LC_ScrapOutside.Logger.LogInfo($"Unlucky! No scrap will spawn due to ChanceToSpawn: {LC_ScrapOutside.chanceToSpawn.Value} being lower than the chosen random value.");
+            if (LC_ScrapOutside.configurations[i].name == RoundManager.Instance.currentLevel.PlanetName)
+            {
+                if (LC_ScrapOutside.configurations[i].useThis) currentIndex = i;
+                else currentIndex = 0;
+                configFound = true;
+                break;
+            }
+        }
+        if (!configFound) currentIndex = 0;
+        if (LC_ScrapOutside.configurations[currentIndex].chanceToSpawn <= 0f)
+        {
+            LC_ScrapOutside.Logger.LogInfo("Chance for scrap to spawn outside was set to 0, no scrap outside will spawn.");
             return;
         }
 
-        if (LC_ScrapOutside.extraVarianceMin.Value > LC_ScrapOutside.extraVarianceMax.Value)
+        if (LC_ScrapOutside.luckyRoll.Value || LC_ScrapOutside.configurations[currentIndex].scaleScrapByLuck) luck = CalculateLuckValue();
+        System.Random random = new(StartOfRound.Instance.randomMapSeed + 69420 - 67);
+        if (random.NextDouble() >= LC_ScrapOutside.configurations[currentIndex].chanceToSpawn)
+        {
+            LC_ScrapOutside.Logger.LogInfo($"Unlucky! No scrap will spawn due to ChanceToSpawn: {LC_ScrapOutside.configurations[currentIndex].chanceToSpawn} being lower than the chosen random value.");
+            return;
+        }
+
+        /*if (LC_ScrapOutside.extraVarianceMin.Value > LC_ScrapOutside.extraVarianceMax.Value)
         {
             LC_ScrapOutside.Logger.LogWarning("ExtraVarianceMin was smaller than ExtraVarianceMax. Please readjust your configuration.");
             LC_ScrapOutside.extraVarianceMin.Value = LC_ScrapOutside.extraVarianceMax.Value;
@@ -46,7 +66,7 @@ public static class SpawnScrap
             LC_ScrapOutside.randomScrapMin.Value = LC_ScrapOutside.randomScrapMax.Value;
             LC_ScrapOutside.randomScrapMin.ConfigFile.Save();
             LC_ScrapOutside.Logger.LogWarning("RandomScrapMin was replaced with RandomScrapMax to avoid errors.");
-        }
+        }*/
 
         int amount = GetScrapSpawnAmount();
         
@@ -120,17 +140,17 @@ public static class SpawnScrap
     internal static int GetScrapSpawnAmount() 
     {
         float result = 0;
-        switch (LC_ScrapOutside.scrapCountAlgorithm.Value)
+        switch (LC_ScrapOutside.configurations[currentIndex].scrapCountAlgorithm)
         {
-            case LC_ScrapOutside.Algorithm.Static:
+            case Algorithm.Static:
                 result = GetStaticScrapAmount();
                 break;
 
-            case LC_ScrapOutside.Algorithm.Random:
+            case Algorithm.Random:
                 result = GetRandomScrapAmount();
                 break;
 
-            case LC_ScrapOutside.Algorithm.Dynamic:
+            case Algorithm.Dynamic:
                 result = GetDynamicScrapAmount();
                 break;
         }
@@ -161,13 +181,13 @@ public static class SpawnScrap
 
     internal static int GetStaticScrapAmount()
     {
-        return LC_ScrapOutside.staticScrapToSpawn.Value >= 0 ? LC_ScrapOutside.staticScrapToSpawn.Value : 0;
+        return LC_ScrapOutside.configurations[currentIndex].staticScrapToSpawn >= 0 ? LC_ScrapOutside.configurations[currentIndex].staticScrapToSpawn : 0;
     }
 
     internal static int GetRandomScrapAmount()
     {
         System.Random random = new(StartOfRound.Instance.randomMapSeed + 64914);
-        return random.Next(LC_ScrapOutside.randomScrapMin.Value, LC_ScrapOutside.randomScrapMax.Value + 1);
+        return random.Next(LC_ScrapOutside.configurations[currentIndex].randomScrapMin, LC_ScrapOutside.configurations[currentIndex].randomScrapMax + 1);
     }
 
     [MethodImpl(MethodImplOptions.NoOptimization)]
@@ -176,23 +196,23 @@ public static class SpawnScrap
         float multiplier = 1f;
         LC_ScrapOutside.Logger.LogDebug($"Multiplier at Start: {multiplier}");
 
-        if (LC_ScrapOutside.scaleScrapByLuck.Value)
+        if (LC_ScrapOutside.configurations[currentIndex].scaleScrapByLuck)
         {
-            multiplier *= (luck * LC_ScrapOutside.luckMultiplier.Value) + 1;
+            multiplier *= (luck * LC_ScrapOutside.configurations[currentIndex].luckMultiplier) + 1;
             LC_ScrapOutside.Logger.LogDebug($"Multiplier after luckBasedScrapMultiplier: {multiplier}");
         }
-        if (LC_ScrapOutside.scaleScrapByQuota.Value)
+        if (LC_ScrapOutside.configurations[currentIndex].scaleScrapByQuota)
         {
-            multiplier *= Mathf.Pow(LC_ScrapOutside.inverseQuotaBasedMultiplier.Value ? (float)LC_ScrapOutside.baselineQuotaValue.Value / TimeOfDay.Instance.profitQuota : (float)TimeOfDay.Instance.profitQuota / LC_ScrapOutside.baselineQuotaValue.Value, LC_ScrapOutside.quotaValueMultiplierScalar.Value);
+            multiplier *= Mathf.Pow(LC_ScrapOutside.configurations[currentIndex].inverseQuotaBasedMultiplier ? (float)LC_ScrapOutside.configurations[currentIndex].baselineQuotaValue / TimeOfDay.Instance.profitQuota : (float)TimeOfDay.Instance.profitQuota / LC_ScrapOutside.configurations[currentIndex].baselineQuotaValue, LC_ScrapOutside.configurations[currentIndex].quotaValueMultiplierScalar);
             LC_ScrapOutside.Logger.LogDebug($"Multiplier after quotaBasedScrapMultiplier: {multiplier}");
         }
-        if (LC_ScrapOutside.scaleScrapByMoonScrapAmount.Value)
+        if (LC_ScrapOutside.configurations[currentIndex].scaleScrapByMoonScrapAmount)
         {
             float averageScrapCount = (RoundManager.Instance.currentLevel.maxScrap + RoundManager.Instance.currentLevel.minScrap) / 2;
-            multiplier *= Mathf.Pow(averageScrapCount / LC_ScrapOutside.baselineMoonScrapAmount.Value, LC_ScrapOutside.moonScrapAmountDifferenceScalar.Value);
+            multiplier *= Mathf.Pow(averageScrapCount / LC_ScrapOutside.configurations[currentIndex].baselineMoonScrapAmount, LC_ScrapOutside.configurations[currentIndex].moonScrapAmountDifferenceScalar);
             LC_ScrapOutside.Logger.LogDebug($"Multiplier after moonScrapAmountBasedMultiplier: {multiplier}");
         }
-        if (LC_ScrapOutside.scaleScrapByWeather.Value) 
+        if (LC_ScrapOutside.configurations[currentIndex].scaleScrapByWeather) 
         {
             Dictionary<string, float>? weatherMultipliers = GetWeatherMultipliersDict();
             if (weatherMultipliers != null) 
@@ -203,12 +223,12 @@ public static class SpawnScrap
             }
             LC_ScrapOutside.Logger.LogDebug($"Multiplier after weatherBasedMultiplier: {multiplier}");
         }
-        if (LC_ScrapOutside.extraVariance.Value)
+        if (LC_ScrapOutside.configurations[currentIndex].applyRandomVariance)
         {
             multiplier *= GetExtraVariance();
             LC_ScrapOutside.Logger.LogDebug($"Multiplier after extraVariance: {multiplier}");
         }
-        return Mathf.Clamp(LC_ScrapOutside.dynamicBaseScrapAmount.Value * multiplier, LC_ScrapOutside.minScrapToSpawn.Value, LC_ScrapOutside.maxScrapToSpawn.Value);
+        return Mathf.Clamp(LC_ScrapOutside.configurations[currentIndex].dynamicBaseScrapAmount * multiplier, LC_ScrapOutside.configurations[currentIndex].minScrapToSpawn, LC_ScrapOutside.configurations[currentIndex].maxScrapToSpawn);
     }
 
     internal static float GetExtraVariance()
@@ -222,7 +242,7 @@ public static class SpawnScrap
         try
         {
             Dictionary<string, float> dict = [];
-            string[] pairs = LC_ScrapOutside.weatherMultipliers.Value.Split(',');
+            string[] pairs = LC_ScrapOutside.configurations[currentIndex].weatherMultipliers.Split(',');
             if (pairs.Length <= 0)
             {
                 return null;
