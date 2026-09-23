@@ -13,6 +13,7 @@ namespace LC_ScrapOutside.Patches;
 public static class SpawnScrap
 {
     static int totalOutsideScrapSpawned = 0;
+    static int totalValueOutside = 0;
     static int outsideScrapSpawned = 0;
     static int currentIndex = 0;
     static float luck = 0f;
@@ -165,6 +166,8 @@ public static class SpawnScrap
         scrapValues = [.. newScrapValues];
 
         totalOutsideScrapSpawned += outsideScrapSpawned;
+        int scrapsum = ScrapValues.Sum();
+        totalValueOutside += scrapsum;
         if (LC_ScrapOutside.announceInChat.Value && HUDManager.Instance) 
         {
             if (outsideScrapSpawned == 0)
@@ -172,14 +175,14 @@ public static class SpawnScrap
                 LC_ScrapOutside.Logger.LogWarning("Got to the end of the scrap spawn function with no scrap spawned! Displaying warning in chat.");
                 HUDManager.Instance.AddTextToChatOnServer("Error spawning outside scrap! Check logs.");
             }
-            else AddAnnouncementMessage(outsideScrapSpawned, ScrapValues.Sum(), totalOutsideScrapSpawned);
+            else AddAnnouncementMessage(outsideScrapSpawned, scrapsum, totalOutsideScrapSpawned, totalValueOutside);
         }
         outsideScrapSpawned = 0;
     }
 
-    internal static void AddAnnouncementMessage(int count, int value, int totalvalue)
+    internal static void AddAnnouncementMessage(int count, int value, int totalCount, int totalValue)
     {
-        HUDManager.Instance.AddTextToChatOnServer(LC_ScrapOutside.announcementMessage.Value.Replace("&#", count.ToString()).Replace("&$", value.ToString()).Replace("&=", totalvalue.ToString()));
+        HUDManager.Instance.AddTextToChatOnServer(LC_ScrapOutside.announcementMessage.Value.Replace("&#", count.ToString()).Replace("&$", value.ToString()).Replace("&=", totalCount.ToString()).Replace("&%", totalValue.ToString()));
     }
 
     internal static List<Item> SelectScrap(int amount)
