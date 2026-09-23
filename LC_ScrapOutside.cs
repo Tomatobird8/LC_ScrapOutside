@@ -16,6 +16,7 @@ public class LC_ScrapOutside : BaseUnityPlugin
     public static List<Configuration> configurations = [];
 
     public static ConfigEntry<bool> announceInChat = null!;
+    public static ConfigEntry<string> announcementMessage = null!;
     public static ConfigEntry<bool> useInternalLuckValue = null!;
 
     public static ConfigEntry<bool> luckyRoll = null!;
@@ -29,6 +30,7 @@ public class LC_ScrapOutside : BaseUnityPlugin
         Instance = this;
 
         announceInChat = Config.Bind("General", "Announce In Chat", true, "When scrap is spawned outside, annouce the amount spawned in chat.");
+        announcementMessage = Config.Bind("General", "Announcement Message", "Spawned &# scrap outside!", "What should the chat announcement read? Available placeholders: &# - Amount of scrap spawned outside, &$ - Value of the scrap spawned outside, &= - Total value of all scrap spawned outside in the current session.");
         useInternalLuckValue = Config.Bind("General", "Use Internal Luck Value", false, "Instead of calculating the current furniture luck immediately from the currently placed furniture, should the internal luck value be used? The internal value only updates each quota after quota 2.");
 
         luckyRoll = Config.Bind("Luck Bonus", "Lucky Bonus", true, "Enable a bonus luck check that multiplies the amount of scrap outside if it passes. Uses furniture luck to determine the chance to succeed.");

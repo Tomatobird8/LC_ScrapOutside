@@ -12,6 +12,8 @@ namespace LC_ScrapOutside.Patches;
 [HarmonyPatch]
 public static class SpawnScrap
 {
+    static int totalOutsideScrapSpawned = 0;
+    static int outsideScrapSpawned = 0;
     static int currentIndex = 0;
     static float luck = 0f;
 
@@ -128,8 +130,6 @@ public static class SpawnScrap
             return;
         }
 
-        if (LC_ScrapOutside.announceInChat.Value && HUDManager.Instance) HUDManager.Instance.AddTextToChatOnServer($"Spawned {amount} scrap outside!");
-
         for (int i = 0; i < ScrapToSpawn.Count; i++)
         {
             Vector3 pos = new();
@@ -150,6 +150,7 @@ public static class SpawnScrap
             NetworkObject netobj = obj.GetComponent<NetworkObject>();
             netobj.Spawn();
             ScrapNetworkObjects.Add(netobj);
+            outsideScrapSpawned++;
         }
 
         List<NetworkObjectReference> newSpawnedScrap = [.. spawnedScrap];
@@ -162,6 +163,23 @@ public static class SpawnScrap
         }
         spawnedScrap = [.. newSpawnedScrap];
         scrapValues = [.. newScrapValues];
+
+        totalOutsideScrapSpawned += outsideScrapSpawned;
+        if (LC_ScrapOutside.announceInChat.Value && HUDManager.Instance) 
+        {
+            if (outsideScrapSpawned == 0)
+            {
+                LC_ScrapOutside.Logger.LogWarning("Got to the end of the scrap spawn function with no scrap spawned! Displaying warning in chat.");
+                HUDManager.Instance.AddTextToChatOnServer("Error spawning outside scrap! Check logs.");
+            }
+            else AddAnnouncementMessage(outsideScrapSpawned, ScrapValues.Sum(), totalOutsideScrapSpawned);
+        }
+        outsideScrapSpawned = 0;
+    }
+
+    internal static void AddAnnouncementMessage(int count, int value, int totalvalue)
+    {
+        HUDManager.Instance.AddTextToChatOnServer(LC_ScrapOutside.announcementMessage.Value.Replace("&#", count.ToString()).Replace("&$", value.ToString()).Replace("&=", totalvalue.ToString()));
     }
 
     internal static List<Item> SelectScrap(int amount)
@@ -194,7 +212,7 @@ public static class SpawnScrap
                     Item? item = GetItem(spawnableItemsList[RoundManager.Instance.GetRandomWeightedIndex([.. scrapWeights], random)].Name);
                     if (item == null)
                     {
-                        LC_ScrapOutside.Logger.LogError("Item reference was null. Continuing...");
+                        LC_ScrapOutside.Logger.LogError($"Item reference was null! {(LC_ScrapOutside.configurations[currentIndex].scrapType == ScrapType.CustomList? "Item couldn't be found using the parsed custom items list." : "Item couldn't be fetched from the moon's spawnable scrap list.")} Skipping one item and continuing...");
                         continue;
                     }
                     scrapToSpawn.Add(item);
@@ -318,7 +336,7 @@ public static class SpawnScrap
             foreach (string pair in pairs)
             {
                 string[] elements = pair.Split(":");
-                if (elements.Length <= 1)
+                if (elements.Length != 2)
                 {
                     continue;
                 }
@@ -326,11 +344,15 @@ public static class SpawnScrap
                 {
                     dict.Add(elements[0].Trim().ToLowerInvariant(), weatherMultiplier);
                 }
+                else
+                {
+                    LC_ScrapOutside.Logger.LogError($"Couldn't parse weather multiplier. Make sure your input is written correctly. Problematic input: {pair}");
+                }
             }
             return dict;
         } catch (Exception e)
         {
-            LC_ScrapOutside.Logger.LogError("Failed to get weather multipliers: " + e);
+            LC_ScrapOutside.Logger.LogError("Failed to get weather multipliers: " + e.Message);
             return null;
         }
     }
@@ -371,12 +393,24 @@ public static class SpawnScrap
             for (int i = 0;i < temp.Length; i++)
             {
                 string[] temp2 = temp[i].Split(":");
-                WeightedItem item = new()
+                if (temp2.Length != 2)
                 {
-                    Name = temp2[0],
-                    Rarity = int.Parse(temp2[1])
-                };
-                items.Add(item);
+                    LC_ScrapOutside.Logger.LogError($"Couldn't parse custom item weight input. Follow the example in the config description. Problematic input: {temp}");
+                    continue;
+                }
+                if (int.TryParse(temp2[1], out int rarity))
+                {
+                    WeightedItem item = new()
+                    {
+                        Name = temp2[0].Trim().ToLowerInvariant(),
+                        Rarity = rarity
+                    };
+                    items.Add(item);
+                }
+                else
+                {
+                    LC_ScrapOutside.Logger.LogError($"Couldn't parse integer from {temp}. Please follow the example in the config description.");
+                }
             }
         }catch (Exception e)
         {
@@ -390,7 +424,7 @@ public static class SpawnScrap
     {
         for (int i = 0;i < StartOfRound.Instance.allItemsList.itemsList.Count; i++)
         {
-            if (s == StartOfRound.Instance.allItemsList.itemsList[i].itemName)
+            if (s == StartOfRound.Instance.allItemsList.itemsList[i].itemName.ToLowerInvariant())
             {
                 return StartOfRound.Instance.allItemsList.itemsList[i];
             }
@@ -409,7 +443,7 @@ public static class SpawnScrap
             string[] temp = s.Split(';');
             for (int i = 0; i < temp.Length; i++)
             {
-                coordinates.Add(ParseVector3FromString(temp[i]));
+                coordinates.Add(ParseVector3FromString(temp[i].Trim()));
             }
         }
         catch (Exception e)
